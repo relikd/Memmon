@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 			button.image = self.statusMenuIcon()
 		}
 		self.statusItem.menu = NSMenu(title: "")
+		self.statusItem.menu!.addItem(withTitle: "Memmon", action: nil, keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Hide Status Icon", action: #selector(self.enableInvisbleMode), keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Quit", action: #selector(NSApp.terminate), keyEquivalent: "q")
 	}

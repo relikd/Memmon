@@ -7,6 +7,34 @@
 
 Memmon remembers what your Mac forgets – A simple deamon that restores your window positions on external monitors.
 
+
+## Install
+
+1. You will need macOS 10.10 or newer.
+2. Grant Memmon the Accessibility privilege. Go to "System Preference" > "Security & Privacy" > "Accessibility" and add Memmon to that list. Otherwise, you can't move other application windows around and the app has no purpose.
+3. Thats it. The app runs in your status bar.
+
+
+### Status Icon
+
+You can hide the status icon either via `defaults` or the same-titled menu entry. If you do so, the only way to quit the app is by killing the process (with Activity.app or `killall Memmon`).
+
+Memmon has exactly one app-setting, the status icon. You can manipulate the display of the icon, or hide the icon completely:
+
+```sh
+# disable status icon completely
+defaults write de.relikd.Memmon icon -int 0
+# Use window-dots-icon
+defaults write de.relikd.Memmon icon -int 1
+# Use monitor-with-windows icon (default)
+defaults write de.relikd.Memmon icon -int 2
+# re-enable status icon and use default icon
+defaults delete de.relikd.Memmon icon
+```
+
+![status icons](img/status_icons.png)
+
+
 ## FAQ
 
 ### Why‽
@@ -23,33 +51,11 @@ Yes, for example [Mjolnir](https://github.com/mjolnirapp/mjolnir) or [Hammerspoo
 
 ### What is it good for?
 
-First off, Memmon is just 130 lines of code – no dependencies. You can audit it in 5 minutes. Or just build it from scratch if you like (just run `make`).
+First off, Memmon is just 140 lines of code – no dependencies. You can audit it in 5 minutes and build it from scratch – just run `make`.
 
 Secondly, it does one thing and one thing only: Save and restore window positions whenever your monitor setup changes.
 
 
-## Install
-
-1. You will need macOS 10.10 or newer.
-2. Grant Memmon the Accessibility privilege. Go to "System Preference" > "Security & Privacy" > "Accessibility" and add Memmon to that list. Otherwise, you can't move other application windows around and the app has no purpose.
-3. Thats it. The app runs in your status bar.
-
 ### Develop
 
 You can either run the `main.swift` file directly with `swift main.swift`, via Terminal `./main.swift` (`chmod 755 main.swift`), or create a new Xcode project. Select the Command-Line template and after creation replace the existing `main.swift` with the bundled one.
-
-To build the app run `make`.
-
-
-### Hide Status Icon
-
-You can hide the status icon either via the same-titled menu entry. If you do so, the only way to quit the app is by killing the process (with Activity.app or `killall Memmon`).
-
-If you like to hide the icon directly on launch, use this app-setting:
-
-```sh
-# disable status icon completely
-defaults write de.relikd.Memmon invisible -bool True
-# re-enable status icon
-defaults delete de.relikd.Memmon invisible
-```

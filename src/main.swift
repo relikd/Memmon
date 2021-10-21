@@ -11,12 +11,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 	private var state: [Int: WinConf] = [:]  // [screencount: [pid: [windows]]]
 	
 	func applicationDidFinishLaunching(_ aNotification: Notification) {
-		if UserDefaults.standard.bool(forKey: "invisible") == true {
-			return
-		}
+		UserDefaults.standard.register(defaults: ["icon": 2])
+		let icon = UserDefaults.standard.integer(forKey: "icon")
+		if icon == 0 { return }
 		self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 		if let button = self.statusItem.button {
-			button.image = NSImage.statusIconMonitor
+			switch icon {
+			case 1: button.image = NSImage.statusIconDots
+			case 2: button.image = NSImage.statusIconMonitor
+			default: button.image = NSImage.statusIconMonitor
+			}
 		}
 		self.statusItem.menu = NSMenu(title: "")
 		self.statusItem.menu!.addItem(withTitle: "Memmon (v1.1)", action: nil, keyEquivalent: "")
@@ -134,6 +138,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension NSImage {
+	static var statusIconDots: NSImage {
+		let img = NSImage.init(size: .init(width: 20, height: 20), flipped: true) {
+			let ctx = NSGraphicsContext.current!.cgContext
+			let w = $0.width
+			let h = $0.height
+			let sw = 0.025 * w  // stroke width
+			ctx.stroke(CGRect(x: 0.0 * w, y: 0.15 * h, width: 1.0 * w, height: 0.7 * h).insetBy(dx: sw / 2, dy: sw / 2), width: sw)
+			ctx.fill(CGRect(x: 0, y: 0.55 * h, width: w, height: sw))
+			let circle = CGRect(x: 0, y: 0.25 * h, width: 0.2 * w, height: 0.2 * w)
+			ctx.fillEllipse(in: circle.offsetBy(dx: 0.12 * w, dy: 0))
+			ctx.fillEllipse(in: circle.offsetBy(dx: 0.4 * w, dy: 0))
+			ctx.fillEllipse(in: circle.offsetBy(dx: 0.68 * w, dy: 0))
+			return true
+		}
+		img.isTemplate = true
+		return img
+	}
+
 	static var statusIconMonitor: NSImage {
 		let img = NSImage.init(size: .init(width: 21, height: 14), flipped: true) {
 			let ctx = NSGraphicsContext.current!.cgContext

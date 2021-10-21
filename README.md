@@ -1,7 +1,7 @@
 [![macOS 10.10+](https://img.shields.io/badge/macOS-10.10+-888)](#install)
 [![Current release](https://img.shields.io/github/release/relikd/Memmon)](https://github.com/relikd/Memmon/releases)
 
-<img src="img/icon.svg" width="180" height="180" style="margin: 0 10px; float: right;">
+<img src="img/icon.svg" width="180" height="180">
 
 # Memmon
 
@@ -33,6 +33,12 @@ Secondly, it does one thing and one thing only: Save and restore window position
 1. You will need macOS 10.10 or newer.
 2. Grant Memmon the Accessibility privilege. Go to "System Preference" > "Security & Privacy" > "Accessibility" and add Memmon to that list. Otherwise, you can't move other application windows around and the app has no purpose.
 3. Thats it. The app runs in your status bar.
+
+### Develop
+
+You can either run the `main.swift` file directly with `swift main.swift`, via Terminal `./main.swift` (`chmod 755 main.swift`), or create a new Xcode project. Select the Command-Line template and after creation replace the existing `main.swift` with the bundled one.
+
+To build the app run `make`.
 
 
 ### Hide Status Icon

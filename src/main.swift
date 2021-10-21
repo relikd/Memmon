@@ -2,10 +2,13 @@
 import Cocoa
 import AppKit
 
+typealias WinPos = (Int32, CGRect)  // win-num, bounds
+typealias WinConf = [Int32: [WinPos]]  // app-pid, window-list
+
 class AppDelegate: NSObject, NSApplicationDelegate {
 	private var statusItem: NSStatusItem!
 	private var numScreens: Int = NSScreen.screens.count
-	private var state: [Int: [Int32: [CGRect]]] = [:]  // [screencount: [pid: [windows]]]
+	private var state: [Int: WinConf] = [:]  // [screencount: [pid: [windows]]]
 	
 	func applicationDidFinishLaunching(_ aNotification: Notification) {
 		if UserDefaults.standard.bool(forKey: "invisible") == true {
@@ -13,34 +16,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 		self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 		if let button = self.statusItem.button {
-			button.image = self.statusMenuIcon()
+			button.image = NSImage.statusIconMonitor
 		}
 		self.statusItem.menu = NSMenu(title: "")
-		self.statusItem.menu!.addItem(withTitle: "Memmon", action: nil, keyEquivalent: "")
+		self.statusItem.menu!.addItem(withTitle: "Memmon (v1.1)", action: nil, keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Hide Status Icon", action: #selector(self.enableInvisbleMode), keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Quit", action: #selector(NSApp.terminate), keyEquivalent: "q")
-	}
-
-	func statusMenuIcon() -> NSImage {
-		let img = NSImage.init(size: .init(width: 21, height: 14), flipped: true) {
-			let ctx = NSGraphicsContext.current!.cgContext
-			let w = $0.width
-			let h = $0.height
-			let ssw = 0.025 * w  // small stroke width
-			let lsw = 0.05 * w  // large stroke width
-			// main screen
-			ctx.stroke(CGRect(x: 0.1 * w, y: 0.0 * h, width: 0.8 * w, height: 0.8 * h).insetBy(dx: lsw / 2, dy: lsw / 2), width: lsw)
-			ctx.clear(CGRect(x: 0.0 * w, y: 0.2 * h, width: 1.0 * w, height: 0.4 * h))
-			ctx.fill(CGRect(x: 0.41 * w, y: 0.8 * h, width: 0.18 * w, height: 0.12 * h))
-			ctx.fill(CGRect(x: 0.27 * w, y: 0.92 * h, width: 0.46 * w, height: 0.08 * h))
-			// three windows
-			ctx.stroke(CGRect(x: 0.0 * w, y: 0.28 * h, width: 0.27 * w, height: 0.24 * h).insetBy(dx: ssw / 2, dy: ssw / 2), width: ssw)
-			ctx.stroke(CGRect(x: 0.34 * w, y: 0.2 * h, width: 0.32 * w, height: 0.4 * h).insetBy(dx: ssw / 2, dy: ssw / 2), width: ssw)
-			ctx.stroke(CGRect(x: 0.73 * w, y: 0.28 * h, width: 0.27 * w, height: 0.24 * h).insetBy(dx: ssw / 2, dy: ssw / 2), width: ssw)
-			return true
-		}
-		img.isTemplate = true
-		return img
 	}
 
 	@objc func enableInvisbleMode() {
@@ -49,56 +30,87 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 	func applicationDidChangeScreenParameters(_ notification: Notification) {
 		if numScreens != NSScreen.screens.count {
-			// save state
-			self.state[numScreens] = self.getState()
+			self.saveState()
 			numScreens = NSScreen.screens.count
-			// restore state
 			if let previous = self.state[numScreens] {
 				self.restoreState(previous)
 			}
 		}
 	}
 	
-	private func getState() -> [Int32: [CGRect]] {
-		var state: [Int32: [CGRect]] = [:]
-		let windowList = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as NSArray? as? [[String: AnyObject]]
-		for entry in windowList! {
-			let pid = entry[kCGWindowOwnerPID as String] as! Int32
-			let layer = entry[kCGWindowLayer as String] as! Int32
-			// let owner = entry[kCGWindowOwnerName as String] as! String
-			if layer != 0 {
-				continue
+	private func saveState() {
+		let newState = self.getState()
+		self.state[numScreens] = newState
+		// update existing
+		let dummy: WinPos = (0, CGRect.zero)
+		for kNum in self.state.keys {
+			if kNum == numScreens { continue }  // current state, already set above
+			var tmp_state: WinConf = [:]
+			for (n_app, new_val) in newState {
+				if let old_val = self.state[kNum]![n_app] {
+					tmp_state[n_app] = []
+					for (n_win, _) in new_val {
+						let old_pos = old_val.first { $0.0 == n_win }
+						tmp_state[n_app]!.append(old_pos ?? dummy)
+					}
+				}
 			}
-			let b = entry[kCGWindowBounds as String] as! [String: Int]
-			let bounds = CGRect(x: b["X"]!, y: b["Y"]!, width: b["Width"]!, height: b["Height"]!)
-			if (state[pid] == nil) {
-				state[pid] = [bounds]
-			} else {
-				state[pid]!.append(bounds)
-			}
+			self.state[kNum] = tmp_state
 		}
-		return state
 	}
 	
-	private func restoreState(_ state: [Int32: [CGRect]]) {
+	private func restoreState(_ state: WinConf) {
 		for (pid, bounds) in state {
 			self.setWindowSizes(pid, bounds)
 		}
 	}
 	
-	private func setWindowSizes(_ pid: Int32, _ sizes: [CGRect]) {
+	private func getState() -> WinConf {
+		var allWinNums: [Int32] = []
+		for winNum in NSWindow.windowNumbers(options: [.allApplications, .allSpaces]) ?? [] {
+			allWinNums.append(winNum.int32Value)
+		}
+		var state: WinConf = [:]
+		let windowList = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as NSArray? as? [[String: AnyObject]]
+		
+		for entry in windowList! {
+			// let owner = entry[kCGWindowOwnerName as String] as! String
+			if entry[kCGWindowLayer as String] as! CGWindowLevel != kCGNormalWindowLevel {
+				continue
+			}
+			let winNum = entry[kCGWindowNumber as String] as! Int32
+			guard let insIdx = allWinNums.firstIndex(of: winNum) else {
+				continue
+			}
+			let pid = entry[kCGWindowOwnerPID as String] as! Int32
+			let b = entry[kCGWindowBounds as String] as! [String: Int]
+			let bounds = CGRect(x: b["X"]!, y: b["Y"]!, width: b["Width"]!, height: b["Height"]!)
+			if (state[pid] == nil) {
+				state[pid] = [(winNum, bounds)]
+			} else {
+				// allWinNums is sorted by recent activity, windowList is not. Keep order while appending.
+				if let idx = state[pid]!.firstIndex(where: { insIdx < allWinNums.firstIndex(of: $0.0)! }) {
+					state[pid]!.insert((winNum, bounds), at: idx)
+				} else {
+					state[pid]!.append((winNum, bounds))
+				}
+			}
+		}
+		return state
+	}
+	
+	private func setWindowSizes(_ pid: Int32, _ sizes: [WinPos]) {
 		let win = self.axWinList(pid)
 		guard win.count > 0, win.count == sizes.count else {
-			print(pid, win.count, sizes.count)
 			return
 		}
 		for i in 0 ..< win.count {
-			var newPoint = sizes[i].origin
-			var newSize = sizes[i].size
+			var pt = sizes[i].1
+			if pt.isEmpty { continue }  // filter dummy elements
 			AXUIElementSetAttributeValue(win[i], kAXPositionAttribute as CFString,
-										 AXValueCreate(AXValueType(rawValue: kAXValueCGPointType)!, &newPoint)!);
+										 AXValueCreate(AXValueType(rawValue: kAXValueCGPointType)!, &pt.origin)!);
 			AXUIElementSetAttributeValue(win[i], kAXSizeAttribute as CFString,
-										 AXValueCreate(AXValueType(rawValue: kAXValueCGSizeType)!, &newSize)!);
+										 AXValueCreate(AXValueType(rawValue: kAXValueCGSizeType)!, &pt.size)!);
 		}
 	}
 	
@@ -118,6 +130,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 			return tmp
 		}
 		return []
+	}
+}
+
+extension NSImage {
+	static var statusIconMonitor: NSImage {
+		let img = NSImage.init(size: .init(width: 21, height: 14), flipped: true) {
+			let ctx = NSGraphicsContext.current!.cgContext
+			let w = $0.width
+			let h = $0.height
+			let ssw = 0.025 * w  // small stroke width
+			let lsw = 0.05 * w  // large stroke width
+			// main screen
+			ctx.stroke(CGRect(x: 0.1 * w, y: 0.0 * h, width: 0.8 * w, height: 0.8 * h).insetBy(dx: lsw / 2, dy: lsw / 2), width: lsw)
+			ctx.clear(CGRect(x: 0.0 * w, y: 0.2 * h, width: 1.0 * w, height: 0.4 * h))
+			ctx.fill(CGRect(x: 0.41 * w, y: 0.8 * h, width: 0.18 * w, height: 0.12 * h))
+			ctx.fill(CGRect(x: 0.27 * w, y: 0.92 * h, width: 0.46 * w, height: 0.08 * h))
+			// three windows
+			ctx.stroke(CGRect(x: 0.0 * w, y: 0.28 * h, width: 0.27 * w, height: 0.24 * h).insetBy(dx: ssw / 2, dy: ssw / 2), width: ssw)
+			ctx.stroke(CGRect(x: 0.34 * w, y: 0.2 * h, width: 0.32 * w, height: 0.4 * h).insetBy(dx: ssw / 2, dy: ssw / 2), width: ssw)
+			ctx.stroke(CGRect(x: 0.73 * w, y: 0.28 * h, width: 0.27 * w, height: 0.24 * h).insetBy(dx: ssw / 2, dy: ssw / 2), width: ssw)
+			return true
+		}
+		img.isTemplate = true
+		return img
 	}
 }
 

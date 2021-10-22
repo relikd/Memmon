@@ -7,6 +7,8 @@
 
 Memmon remembers what your Mac forgets – A simple deamon that restores your window positions on external monitors.
 
+**Limitations:** Currently, Memmon can not restore windows in other spaces, only the currently active space. If you know a way to access the accessibility settings of a different space, let me know.
+
 
 ## Install
 

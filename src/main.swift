@@ -2,8 +2,10 @@
 import Cocoa
 import AppKit
 
-typealias WinPos = (Int32, CGRect)  // win-num, bounds
-typealias WinConf = [Int32: [WinPos]]  // app-pid, window-list
+typealias AppPID = Int32  // see kCGWindowOwnerPID
+typealias WinNum = Int32  // see kCGWindowNumber
+typealias WinPos = (WinNum, CGRect)  // win-num, bounds
+typealias WinConf = [AppPID: [WinPos]]  // app-pid, window-list
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 	private var statusItem: NSStatusItem!
@@ -11,6 +13,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 	private var state: [Int: WinConf] = [:]  // [screencount: [pid: [windows]]]
 	
 	func applicationDidFinishLaunching(_ aNotification: Notification) {
+		// show Accessibility Permissions popup
+		AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() : true] as CFDictionary)
+		// create status menu icon
 		UserDefaults.standard.register(defaults: ["icon": 2])
 		let icon = UserDefaults.standard.integer(forKey: "icon")
 		if icon == 0 { return }
@@ -23,7 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 			}
 		}
 		self.statusItem.menu = NSMenu(title: "")
-		self.statusItem.menu!.addItem(withTitle: "Memmon (v1.1)", action: nil, keyEquivalent: "")
+		self.statusItem.menu!.addItem(withTitle: "Memmon (v1.2)", action: nil, keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Hide Status Icon", action: #selector(self.enableInvisbleMode), keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Quit", action: #selector(NSApp.terminate), keyEquivalent: "q")
 	}
@@ -36,11 +41,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		if numScreens != NSScreen.screens.count {
 			self.saveState()
 			numScreens = NSScreen.screens.count
-			if let previous = self.state[numScreens] {
-				self.restoreState(previous)
-			}
+			self.restoreState()
 		}
 	}
+	
+	private func getWinIds(allSpaces: Bool) -> [WinNum] {
+		NSWindow.windowNumbers(options: allSpaces ? [.allApplications, .allSpaces] : .allApplications)?.map{ $0.int32Value } ?? []
+	}
+	
+	// MARK: - Save State (CGWindow) -
 	
 	private func saveState() {
 		let newState = self.getState()
@@ -63,17 +72,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 	}
 	
-	private func restoreState(_ state: WinConf) {
-		for (pid, bounds) in state {
-			self.setWindowSizes(pid, bounds)
-		}
-	}
-	
 	private func getState() -> WinConf {
-		var allWinNums: [Int32] = []
-		for winNum in NSWindow.windowNumbers(options: [.allApplications, .allSpaces]) ?? [] {
-			allWinNums.append(winNum.int32Value)
-		}
+		let allWinNums = self.getWinIds(allSpaces: true)
 		var state: WinConf = [:]
 		let windowList = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as NSArray? as? [[String: AnyObject]]
 		
@@ -82,11 +82,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 			if entry[kCGWindowLayer as String] as! CGWindowLevel != kCGNormalWindowLevel {
 				continue
 			}
-			let winNum = entry[kCGWindowNumber as String] as! Int32
+			let winNum = entry[kCGWindowNumber as String] as! WinNum
 			guard let insIdx = allWinNums.firstIndex(of: winNum) else {
 				continue
 			}
-			let pid = entry[kCGWindowOwnerPID as String] as! Int32
+			let pid = entry[kCGWindowOwnerPID as String] as! AppPID
 			let b = entry[kCGWindowBounds as String] as! [String: Int]
 			let bounds = CGRect(x: b["X"]!, y: b["Y"]!, width: b["Width"]!, height: b["Height"]!)
 			if (state[pid] == nil) {
@@ -103,7 +103,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		return state
 	}
 	
-	private func setWindowSizes(_ pid: Int32, _ sizes: [WinPos]) {
+	// MARK: - Restore State (AXUIElement) -
+	
+	private func restoreState() {
+		for (pid, bounds) in self.state[numScreens] ?? [:] {
+			let spaceWinNums = getWinIds(allSpaces: false)
+			self.setWindowSizes(pid, bounds.filter{ spaceWinNums.contains($0.0) })
+		}
+	}
+	
+	private func setWindowSizes(_ pid: pid_t, _ sizes: [WinPos]) {
 		let win = self.axWinList(pid)
 		guard win.count > 0, win.count == sizes.count else {
 			return
@@ -118,9 +127,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 	}
 	
-	private func axWinList(_ pid: Int32) -> [AXUIElement] {
+	private func axWinList(_ pid: pid_t) -> [AXUIElement] {
 		let appRef = AXUIElementCreateApplication(pid)
-		var value: AnyObject?
+		var value: CFTypeRef?
 		AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute as CFString, &value)
 		if let windowList = value as? [AXUIElement] {
 			var tmp: [AXUIElement] = []
@@ -136,6 +145,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		return []
 	}
 }
+
+// MARK: - Status Bar Icon -
 
 extension NSImage {
 	static var statusIconDots: NSImage {
@@ -178,6 +189,8 @@ extension NSImage {
 		return img
 	}
 }
+
+// MARK: - Main Entry
 
 let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate

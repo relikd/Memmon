@@ -13,8 +13,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 	private var numScreens: Int = NSScreen.screens.count
 	private var state: [Int: WinConf] = [:]  // [screencount: [pid: [windows]]]
 
-	private var time: Date = Date.distantPast
 	private var spacesAll: [SpaceId] = []  // keep forever (and keep order)
+	private var spacesVisited: Set<WinNum> = []  // fill-up on space-switch
 	private var spacesNeedRestore: Set<SpaceId> = []  // dropped after restore
 
 	func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -23,6 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		// track space changes
 		NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(self.activeSpaceChanged), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
 		_ = self.currentSpace()  // create space-id win for current space
+		self.spacesVisited = Set(self.getWinIds())
 		// create status menu icon
 		UserDefaults.standard.register(defaults: ["icon": 2])
 		let icon = UserDefaults.standard.integer(forKey: "icon")
@@ -36,7 +37,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 			}
 		}
 		self.statusItem.menu = NSMenu(title: "")
-		self.statusItem.menu!.addItem(withTitle: "Memmon (v1.3)", action: nil, keyEquivalent: "")
+		self.statusItem.menu!.addItem(withTitle: "Memmon (v1.4)", action: nil, keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Hide Status Icon", action: #selector(self.enableInvisbleMode), keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Quit", action: #selector(NSApp.terminate), keyEquivalent: "q")
 	}
@@ -46,9 +47,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 	}
 
 	func applicationDidChangeScreenParameters(_ notification: Notification) {
-		if numScreens != NSScreen.screens.count {
+		if self.numScreens != NSScreen.screens.count {
 			self.saveState()
-			numScreens = NSScreen.screens.count
+			self.numScreens = NSScreen.screens.count
+			self.spacesVisited.removeAll(keepingCapacity: true)
 			self.restoreState()
 		}
 	}
@@ -61,31 +63,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 	
 	private func saveState() {
 		self.spacesNeedRestore = Set(self.spacesAll)
-		guard self.time.timeIntervalSinceNow < -5 else {
-			// Last save is less than 5 sec ago.
-			// Do not override a (probably) still correct state.
-			// Otherwise a monitor flicker will forget win-positions in other spaces.
-			return
+		if self.state[self.numScreens] == nil {
+			self.state[self.numScreens] = [:]  // otherwise state.keys wont run
 		}
 		let newState = self.getState()
-		self.state[numScreens] = newState
-		// update existing
 		let dummy: WinPos = (0, CGRect.zero)
 		for kNum in self.state.keys {
-			if kNum == numScreens { continue }  // current state, already set above
+			let isCurrent = kNum == self.numScreens
 			var tmp_state: WinConf = [:]
-			for (n_app, new_val) in newState {
-				if let old_val = self.state[kNum]![n_app] {
-					tmp_state[n_app] = []
-					for (n_win, _) in new_val {
-						let old_pos = old_val.first { $0.0 == n_win }
-						tmp_state[n_app]!.append(old_pos ?? dummy)
+			for (n_app, n_windows) in newState {
+				if let old_windows = self.state[kNum]![n_app] {
+					var win_arr: [WinPos] = []
+					for n_win in n_windows {
+						// In theory, every space that was visited, was also restored.
+						// If not visited (and not restored) then windows may still appear minimized,
+						// so we rather copy the old value, assuming windows weren't moved while in an unvisited space.
+						if isCurrent && self.spacesVisited.contains(n_win.0) {
+							win_arr.append(n_win)
+						} else {
+							// caution! the positions of all other states are updated as well.
+							let old_win = old_windows.first { $0.0 == n_win.0 }
+							win_arr.append(old_win ?? dummy)
+						}
 					}
+					tmp_state[n_app] = win_arr
+				} else if isCurrent {  // and not saved yet
+					tmp_state[n_app] = n_windows  // TODO: or only add if visited?
 				}
 			}
 			self.state[kNum] = tmp_state
 		}
-		self.time = Date(timeIntervalSinceNow: 0)
 	}
 	
 	private func getState() -> WinConf {
@@ -125,7 +132,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		if let space = currentSpace(), self.spacesNeedRestore.contains(space) {
 			self.spacesNeedRestore.remove(space)
 			let spaceWinNums = self.getWinIds()
-			for (pid, bounds) in self.state[numScreens] ?? [:] {
+			self.spacesVisited.formUnion(spaceWinNums)
+			for (pid, bounds) in self.state[self.numScreens] ?? [:] {
 				self.setWindowSizes(pid, bounds.filter{ spaceWinNums.contains($0.0) })
 			}
 		}

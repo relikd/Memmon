@@ -1,5 +1,6 @@
 [![macOS 10.10+](https://img.shields.io/badge/macOS-10.10+-888)](#install)
 [![Current release](https://img.shields.io/github/release/relikd/Memmon)](https://github.com/relikd/Memmon/releases)
+[![All downloads](https://img.shields.io/github/downloads/relikd/Memmon/total)](https://github.com/relikd/Memmon/releases)
 
 <img src="img/icon.svg" width="180" height="180">
 
@@ -7,7 +8,7 @@
 
 Memmon remembers what your Mac forgets – A simple deamon that restores your window positions on external monitors.
 
-**Limitations:** Currently, Memmon can not restore windows in other spaces, only the currently active space. If you know a way to access the accessibility settings of a different space, let me know.
+**Limitations:** Currently, Memmon restores windows in other spaces only if the space is activated. If you know a way to access the accessibility settings of a different space, let me know.
 
 
 ## Install
@@ -53,7 +54,7 @@ Yes, for example [Mjolnir](https://github.com/mjolnirapp/mjolnir) or [Hammerspoo
 
 ### What is it good for?
 
-First off, Memmon is just 140 lines of code – no dependencies. You can audit it in 5 minutes and build it from scratch – just run `make`.
+First off, Memmon is less than 300 lines of code – no dependencies. You can audit it in 10 minutes... And build it from scratch – just run `make`.
 
 Secondly, it does one thing and one thing only: Save and restore window positions whenever your monitor setup changes.
 

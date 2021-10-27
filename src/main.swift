@@ -3,18 +3,26 @@ import Cocoa
 import AppKit
 
 typealias AppPID = Int32  // see kCGWindowOwnerPID
-typealias WinNum = Int32  // see kCGWindowNumber
+typealias WinNum = Int  // see kCGWindowNumber (Int32) and NSWindow.windowNumber (Int)
 typealias WinPos = (WinNum, CGRect)  // win-num, bounds
 typealias WinConf = [AppPID: [WinPos]]  // app-pid, window-list
+typealias SpaceId = WinNum  // see NSWindow.windowNumber (Int)
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 	private var statusItem: NSStatusItem!
 	private var numScreens: Int = NSScreen.screens.count
 	private var state: [Int: WinConf] = [:]  // [screencount: [pid: [windows]]]
-	
+
+	private var time: Date = Date.distantPast
+	private var spacesAll: [SpaceId] = []  // keep forever (and keep order)
+	private var spacesNeedRestore: Set<SpaceId> = []  // dropped after restore
+
 	func applicationDidFinishLaunching(_ aNotification: Notification) {
 		// show Accessibility Permissions popup
 		AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() : true] as CFDictionary)
+		// track space changes
+		NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(self.activeSpaceChanged), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+		_ = self.currentSpace()  // create space-id win for current space
 		// create status menu icon
 		UserDefaults.standard.register(defaults: ["icon": 2])
 		let icon = UserDefaults.standard.integer(forKey: "icon")
@@ -28,7 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 			}
 		}
 		self.statusItem.menu = NSMenu(title: "")
-		self.statusItem.menu!.addItem(withTitle: "Memmon (v1.2)", action: nil, keyEquivalent: "")
+		self.statusItem.menu!.addItem(withTitle: "Memmon (v1.3)", action: nil, keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Hide Status Icon", action: #selector(self.enableInvisbleMode), keyEquivalent: "")
 		self.statusItem.menu!.addItem(withTitle: "Quit", action: #selector(NSApp.terminate), keyEquivalent: "q")
 	}
@@ -45,13 +53,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 	}
 	
-	private func getWinIds(allSpaces: Bool) -> [WinNum] {
-		NSWindow.windowNumbers(options: allSpaces ? [.allApplications, .allSpaces] : .allApplications)?.map{ $0.int32Value } ?? []
+	private func getWinIds(allSpaces: Bool = false) -> [WinNum] {
+		NSWindow.windowNumbers(options: allSpaces ? [.allApplications, .allSpaces] : .allApplications)?.map{ $0.intValue } ?? []
 	}
 	
 	// MARK: - Save State (CGWindow) -
 	
 	private func saveState() {
+		self.spacesNeedRestore = Set(self.spacesAll)
+		guard self.time.timeIntervalSinceNow < -5 else {
+			// Last save is less than 5 sec ago.
+			// Do not override a (probably) still correct state.
+			// Otherwise a monitor flicker will forget win-positions in other spaces.
+			return
+		}
 		let newState = self.getState()
 		self.state[numScreens] = newState
 		// update existing
@@ -70,10 +85,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 			}
 			self.state[kNum] = tmp_state
 		}
+		self.time = Date(timeIntervalSinceNow: 0)
 	}
 	
 	private func getState() -> WinConf {
-		let allWinNums = self.getWinIds(allSpaces: true)
+		let allWinNums = self.getWinIds(allSpaces: true).filter { !self.spacesAll.contains($0) }
 		var state: WinConf = [:]
 		let windowList = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as NSArray? as? [[String: AnyObject]]
 		
@@ -106,24 +122,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 	// MARK: - Restore State (AXUIElement) -
 	
 	private func restoreState() {
-		for (pid, bounds) in self.state[numScreens] ?? [:] {
-			let spaceWinNums = getWinIds(allSpaces: false)
-			self.setWindowSizes(pid, bounds.filter{ spaceWinNums.contains($0.0) })
+		if let space = currentSpace(), self.spacesNeedRestore.contains(space) {
+			self.spacesNeedRestore.remove(space)
+			let spaceWinNums = self.getWinIds()
+			for (pid, bounds) in self.state[numScreens] ?? [:] {
+				self.setWindowSizes(pid, bounds.filter{ spaceWinNums.contains($0.0) })
+			}
 		}
 	}
 	
 	private func setWindowSizes(_ pid: pid_t, _ sizes: [WinPos]) {
+		guard sizes.count > 0 else { return }
 		let win = self.axWinList(pid)
-		guard win.count > 0, win.count == sizes.count else {
-			return
-		}
+		guard win.count == sizes.count else { return }
 		for i in 0 ..< win.count {
 			var pt = sizes[i].1
 			if pt.isEmpty { continue }  // filter dummy elements
-			AXUIElementSetAttributeValue(win[i], kAXPositionAttribute as CFString,
-										 AXValueCreate(AXValueType(rawValue: kAXValueCGPointType)!, &pt.origin)!);
-			AXUIElementSetAttributeValue(win[i], kAXSizeAttribute as CFString,
-										 AXValueCreate(AXValueType(rawValue: kAXValueCGSizeType)!, &pt.size)!);
+			let origin = AXValueCreate(AXValueType(rawValue: kAXValueCGPointType)!, &pt.origin)!
+			let size = AXValueCreate(AXValueType(rawValue: kAXValueCGSizeType)!, &pt.size)!
+			AXUIElementSetAttributeValue(win[i], kAXPositionAttribute as CFString, origin);
+			AXUIElementSetAttributeValue(win[i], kAXSizeAttribute as CFString, size);
 		}
 	}
 	
@@ -143,6 +161,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 			return tmp
 		}
 		return []
+	}
+
+	// MARK: - Space Management -
+
+	@objc func activeSpaceChanged(_ notification: Notification) {
+		self.restoreState()
+	}
+
+	private func currentSpace() -> SpaceId? {
+		let thisSpace = self.getWinIds()
+		var candidates = self.spacesAll.filter { thisSpace.contains($0) }
+		if candidates.count > 0 {
+			let best = candidates.removeFirst()
+			if candidates.count > 0 {
+				// if a full-screen app is closed, win moves to current active space -> remove duplicates
+				self.spacesAll.removeAll { candidates.contains($0) }
+				for oldNum in candidates {
+					NSApp.window(withWindowNumber: oldNum)?.close()
+				}
+			}
+			return best
+		}
+		// create new space-id window (space was not visited yet)
+		let win = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
+		win.isReleasedWhenClosed = false  // win is released either way. But crashes if true.
+		guard win.isOnActiveSpace else {
+			// dashboard or other full-screen app that prohibits display
+			return nil
+		}
+		win.collectionBehavior = [.ignoresCycle, .stationary]
+		win.setIsVisible(true)
+		self.spacesAll.append(win.windowNumber)
+		return win.windowNumber
 	}
 }
 

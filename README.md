@@ -20,7 +20,7 @@ Memmon remembers what your Mac forgets – A simple deamon that restores your wi
 
 ### Status Icon
 
-You can hide the status icon either via `defaults` or the same-titled menu entry. If you do so, the only way to quit the app is by killing the process (with Activity.app or `killall Memmon`).
+You can hide the status icon either via `defaults` or the same-titled menu entry. If you do so, the only way to quit the app is by killing the process (with Activity.app or `killall Memmon`). The status icon stays hidden during this execution only. If you restart the OS or app it will reappear (unless you hide the icon with `defaults`).
 
 Memmon has exactly one app-setting, the status icon. You can manipulate the display of the icon, or hide the icon completely:
 

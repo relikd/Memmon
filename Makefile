@@ -12,9 +12,12 @@ PLIST=$(shell grep -A1 $(1) src/Info.plist | tail -1 | cut -d'>' -f2 | cut -d'<'
 Memmon.app: SDK_PATH=$(shell xcrun --show-sdk-path --sdk macosx)
 Memmon.app: src/*
 	@mkdir -p Memmon.app/Contents/MacOS/
-	swiftc ${CFLAGS} src/main.swift \
-	-target arm64-apple-macos10.10 -target x86_64-apple-macos10.10 \
-	-emit-executable -sdk ${SDK_PATH} -o Memmon.app/Contents/MacOS/Memmon
+	swiftc ${CFLAGS} src/main.swift -target x86_64-apple-macos10.10 \
+	-emit-executable -sdk ${SDK_PATH} -o bin_x64
+	swiftc ${CFLAGS} src/main.swift -target arm64-apple-macos10.10 \
+	-emit-executable -sdk ${SDK_PATH} -o bin_arm64
+	lipo -create bin_x64 bin_arm64 -o Memmon.app/Contents/MacOS/Memmon
+	@rm bin_x64 bin_arm64
 	@echo 'APPL????' > Memmon.app/Contents/PkgInfo
 	@mkdir -p Memmon.app/Contents/Resources/
 	@cp src/AppIcon.icns Memmon.app/Contents/Resources/AppIcon.icns

@@ -8,6 +8,8 @@ endif
 
 PLIST=$(shell grep -A1 $(1) src/Info.plist | tail -1 | cut -d'>' -f2 | cut -d'<' -f1)
 
+VERIFY_CMD=echo "Verifying signature..." && codesign -dvv Memmon.app && \
+	codesign -vvv --deep --strict Memmon.app
 
 Memmon.app: SDK_PATH=$(shell xcrun --show-sdk-path --sdk macosx)
 Memmon.app: src/*
@@ -24,17 +26,19 @@ Memmon.app: src/*
 	@cp src/Info.plist Memmon.app/Contents/Info.plist
 	@touch Memmon.app
 	@echo
-	codesign -v -s 'Apple Development' --options=runtime --timestamp Memmon.app
-	@echo
-	@echo 'Verify Signature...'
-	@echo
-	codesign -dvv Memmon.app
-	@echo
-	codesign -vvv --deep --strict Memmon.app
-	@echo
-	spctl -vvv --assess --type exec Memmon.app
+	@echo 'Code signing...'
+	@if security find-identity -v -p codesigning | grep -q "Apple Development"; then \
+		codesign -v -s 'Apple Development' --options=runtime --timestamp Memmon.app; \
+		$(VERIFY_CMD) && spctl -vvv --assess --type exec Memmon.app; \
+	else \
+		codesign -v -s - Memmon.app; \
+		$(VERIFY_CMD); \
+	fi
 
-.PHONY: release
+.PHONY: clean release
+clean:
+	rm -rf Memmon.app bin_x64 bin_arm64
+
 release: VERSION=$(call PLIST,CFBundleShortVersionString)
 release: Memmon.app
 	tar -czf "Memmon_v${VERSION}.tar.gz" Memmon.app

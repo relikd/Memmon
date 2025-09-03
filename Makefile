@@ -1,15 +1,14 @@
 # usage: make [CONFIG=debug|release]
 
 ifeq ($(CONFIG), debug)
-    CFLAGS=-Onone -g
+	CFLAGS=-Onone -g
 else
-    CFLAGS=-O
+	CFLAGS=-O
 endif
 
 PLIST=$(shell grep -A1 $(1) src/Info.plist | tail -1 | cut -d'>' -f2 | cut -d'<' -f1)
+HAS_SIGN_IDENTITY=$(shell security find-identity -v -p codesigning | grep -q "Apple Development" && echo 1 || echo 0)
 
-VERIFY_CMD=echo "Verifying signature..." && codesign -dvv Memmon.app && \
-	codesign -vvv --deep --strict Memmon.app
 
 Memmon.app: SDK_PATH=$(shell xcrun --show-sdk-path --sdk macosx)
 Memmon.app: src/*
@@ -26,19 +25,29 @@ Memmon.app: src/*
 	@cp src/Info.plist Memmon.app/Contents/Info.plist
 	@touch Memmon.app
 	@echo
-	@echo 'Code signing...'
-	@if security find-identity -v -p codesigning | grep -q "Apple Development"; then \
-		codesign -v -s 'Apple Development' --options=runtime --timestamp Memmon.app; \
-		$(VERIFY_CMD) && spctl -vvv --assess --type exec Memmon.app; \
-	else \
-		codesign -v -s - Memmon.app; \
-		$(VERIFY_CMD); \
-	fi
+ifeq ($(HAS_SIGN_IDENTITY),1)
+	codesign -v -s 'Apple Development' --options=runtime --timestamp Memmon.app
+else
+	codesign -v -s - Memmon.app
+endif
+	@echo
+	@echo 'Verify Signature...'
+	@echo
+	codesign -dvv Memmon.app
+	@echo
+	codesign -vvv --deep --strict Memmon.app
+ifeq ($(HAS_SIGN_IDENTITY),1)
+	@echo
+	-spctl -vvv --assess --type exec Memmon.app
+endif
 
-.PHONY: clean release
+
+.PHONY: clean
 clean:
 	rm -rf Memmon.app bin_x64 bin_arm64
 
+
+.PHONY: release
 release: VERSION=$(call PLIST,CFBundleShortVersionString)
 release: Memmon.app
 	tar -czf "Memmon_v${VERSION}.tar.gz" Memmon.app
